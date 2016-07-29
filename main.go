@@ -1,15 +1,30 @@
 package main
 
 import (
-	"bytes"
+	"bufio"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
+	"time"
 
 	"github.com/coreos/go-systemd/sdjournal"
 )
 
+type OOMMessageFilter struct{}
+
+func (f OOMMessageFilter) Filter(r io.ReadCloser) {
+	defer r.Close()
+
+	buf := bufio.NewReader(r)
+	for {
+		line, _ := buf.ReadBytes('\n')
+		fmt.Printf("Got journal line: %s\n", line)
+	}
+}
+
 func main() {
+	r, w := io.Pipe()
+
 	c := sdjournal.JournalReaderConfig{
 		NumFromTail: 30,
 		Matches: []sdjournal.Match{{
@@ -19,26 +34,28 @@ func main() {
 		Path: "/run/log/journal",
 	}
 
-	r, err := sdjournal.NewJournalReader(c)
+	jr, err := sdjournal.NewJournalReader(c)
 	if err != nil {
 		log.Fatalf("Could not open journal with error: %s", err)
 	}
 
-	if r == nil {
+	if jr == nil {
 		log.Fatal("Could not open journal. Got an invalid reader")
 	}
 
-	defer r.Close()
+	defer jr.Close()
 
-	readBuf, err := ioutil.ReadAll(r)
-	if err != nil {
-		log.Fatalf("Could not read from journal with error: %s", err)
-	}
+	go func() {
+		doneChan := make(<-chan time.Time)
+		err = jr.Follow(doneChan, w)
+		if err != nil {
+			log.Fatalf("Could not read from journal with error: %s", err)
+		}
+	}()
 
-	journalBuf := bytes.NewBuffer(readBuf)
+	f := OOMMessageFilter{}
+	go f.Filter(r)
 
-	fmt.Printf("Read %d bytes from Kernel journal\n", journalBuf.Len())
-	if journalBuf.Len() > 0 {
-		fmt.Printf("Content of journal:\n\n%s", journalBuf)
+	for {
 	}
 }
