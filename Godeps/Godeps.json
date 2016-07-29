@@ -1,0 +1,17 @@
+{
+	"ImportPath": "github.com/denderello/oom-stats",
+	"GoVersion": "go1.5",
+	"GodepVersion": "v63",
+	"Deps": [
+		{
+			"ImportPath": "github.com/coreos/go-systemd/sdjournal",
+			"Comment": "v11-2-gfa8411d",
+			"Rev": "fa8411dcbcbad22b8542b0433914ef68b123f989"
+		},
+		{
+			"ImportPath": "github.com/coreos/pkg/dlopen",
+			"Comment": "v2-12-g3ac0863",
+			"Rev": "3ac0863d7acf3bc44daf49afef8919af12f704ef"
+		}
+	]
+}
