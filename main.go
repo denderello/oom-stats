@@ -1,61 +1,52 @@
 package main
 
 import (
-	"bufio"
-	"fmt"
 	"io"
 	"log"
 	"time"
 
-	"github.com/coreos/go-systemd/sdjournal"
+	"github.com/denderello/oom-stats/aggregation"
+	"github.com/denderello/oom-stats/filter"
+	"github.com/denderello/oom-stats/kernel"
+	"github.com/denderello/oom-stats/metric"
+	"github.com/denderello/oom-stats/oom"
 )
-
-type OOMMessageFilter struct{}
-
-func (f OOMMessageFilter) Filter(r io.ReadCloser) {
-	defer r.Close()
-
-	buf := bufio.NewReader(r)
-	for {
-		line, _ := buf.ReadBytes('\n')
-		fmt.Printf("Got journal line: %s\n", line)
-	}
-}
 
 func main() {
 	r, w := io.Pipe()
-
-	c := sdjournal.JournalReaderConfig{
-		NumFromTail: 30,
-		Matches: []sdjournal.Match{{
-			Field: sdjournal.SD_JOURNAL_FIELD_TRANSPORT,
-			Value: "kernel",
-		}},
-		Path: "/run/log/journal",
-	}
-
-	jr, err := sdjournal.NewJournalReader(c)
-	if err != nil {
-		log.Fatalf("Could not open journal with error: %s", err)
-	}
-
-	if jr == nil {
-		log.Fatal("Could not open journal. Got an invalid reader")
-	}
-
-	defer jr.Close()
+	results := make(chan []byte)
+	oomAggr := aggregation.NewOOM()
 
 	go func() {
 		doneChan := make(<-chan time.Time)
-		err = jr.Follow(doneChan, w)
-		if err != nil {
+
+		jf := kernel.JournaldLogs{}
+		if err := jf.Follow(doneChan, w); err != nil {
 			log.Fatalf("Could not read from journal with error: %s", err)
 		}
 	}()
 
-	f := OOMMessageFilter{}
-	go f.Filter(r)
+	go func() {
+		of := filter.OOM{}
+		of.Filter(r, results)
+	}()
+
+	go func() {
+		m := &metric.Stdout{
+			Interval: 5 * time.Second,
+			OOM:      oomAggr,
+		}
+		m.Run()
+	}()
 
 	for {
+		select {
+		case result := <-results:
+			report, err := oom.ParseReportFromKernelLogs(result)
+			if err != nil {
+				log.Printf("Error parsing kernel logs: %s", err)
+			}
+			oomAggr.Aggregate(report)
+		}
 	}
 }
